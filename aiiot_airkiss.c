@@ -1,0 +1,261 @@
+#include <pthread.h>
+#include <errno.h>
+#include <sys/time.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <signal.h>
+
+#include "capture/common.h"
+#include "capture/osdep.h"
+#include "common.h"
+#include "wifi_scan.h"
+#include "libcrc/checksum.h"
+
+#include "libak/airkiss.h"
+
+#define MAX_CHANNELS 14
+#define AK_PKT_DEBUG 0
+
+#define WLAN_MODULE_PATH_OLD "/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/wlan.ko"
+#define WLAN_MODULE_NAME_NEW "qca9337.ko"
+#define WLAN_MODULE_PATH_NEW "/home/root/qca9377.ko"
+#define WLAN_MODULE_PARAM " con_mode=4"
+
+static airkiss_context_t *ak_contex = NULL;
+static const airkiss_config_t ak_conf = { 
+	(airkiss_memset_fn)&memset, 
+	(airkiss_memcpy_fn)&memcpy, 
+	(airkiss_memcmp_fn)&memcmp, 
+	(airkiss_printf_fn)&printf
+};
+
+airkiss_result_t ak_result;
+
+struct itimerval ak_switch_ch_timer;
+struct wif *wi = NULL;
+
+static int32_t gChanIndex = 0;
+static int32_t gDetChans[MAX_CHANNELS] = {0};
+static int32_t gDetChanNum = 0;
+static int32_t gChanIsLocked = 0;
+pthread_mutex_t lock;
+
+#if AK_PKT_DEBUG
+static void ak_dump_pkt_hdr(const uint8_t *packet)
+{
+	int32_t i;
+	uint8_t ch;
+
+	/* print  header */
+	LOG_TRACE("len:%4d, airkiss ret:%d [ ", size, ret);
+	for (i = 0; i < 24; i++) {
+		ch = (uint8_t)(*(packet + i));
+		printf("%02x ", ch);
+	}
+	printf("]\n");
+}
+#endif
+
+static int32_t ak_start_timer(struct itimerval *timer, int ms)
+{
+    time_t secs, usecs;
+    secs = ms / 1000;
+    usecs = ms % 1000 * 1000;
+
+    timer->it_interval.tv_sec = secs;
+    timer->it_interval.tv_usec = usecs;
+    timer->it_value.tv_sec = secs;
+    timer->it_value.tv_usec = usecs;
+
+    setitimer(ITIMER_REAL, timer, NULL);
+
+    return 0;
+}
+
+static int32_t ak_linux_exec_cmd(char *cmd)
+{
+	FILE *ch_fp = NULL;
+	int32_t ret = 0;
+
+	ch_fp = popen(cmd, "w");
+	if (!ch_fp) {
+		LOG_ERROR("popen channel failed!\n");
+		ret = -1;
+		goto out;
+	}
+	ret = pclose(ch_fp);
+	if (WIFEXITED(ret))
+		LOG_TRACE("subprocess exited, exit code: %d\n", WEXITSTATUS(ret));
+out:
+	return ret;
+}
+
+static int32_t ak_set_channel(int channel)
+{
+	char cmd[128] = { 0 };
+
+	snprintf(cmd, sizeof(cmd) - 1, "iwpriv %s setMonChan %d 0", wi_get_ifname(wi), channel);
+	printf("exec cmd: %s\n", cmd);
+
+	if(ak_linux_exec_cmd(cmd))
+		printf("cannot set channel to %d\n", channel);
+	return 0;
+}
+
+static void ak_switch_channel_timer_callback(void)
+{
+	int32_t ret = 0;
+
+	pthread_mutex_lock(&lock);
+	if (gChanIsLocked) {
+    	pthread_mutex_unlock(&lock);
+		return;
+	}
+	if (gChanIndex > gDetChanNum - 1) {
+		gChanIndex = 0;
+        LOG_TRACE("scaned all channels");
+    }
+
+	ret = ak_set_channel(gDetChans[gChanIndex]);
+	if (ret)
+		LOG_TRACE("cannot set channel to %d", gDetChans[gChanIndex]);
+
+    airkiss_change_channel(ak_contex);
+	gChanIndex++;
+    pthread_mutex_unlock(&lock);
+}
+
+static int32_t ak_process_pkt(const unsigned char *packet, int size)
+{
+	int ret;
+
+	pthread_mutex_lock(&lock);
+	ret = airkiss_recv(ak_contex, (void *)packet, size);
+	switch (ret) {
+	case AIRKISS_STATUS_CONTINUE:
+		break;
+	case AIRKISS_STATUS_CHANNEL_LOCKED:
+        ak_start_timer(&ak_switch_ch_timer, 0);
+        LOG_TRACE("lock channel in %d", gDetChans[gChanIndex]);
+		gChanIsLocked = 1;
+		break;
+	case AIRKISS_STATUS_COMPLETE:
+		gChanIsLocked = 1;
+		LOG_TRACE("Airkiss completed.");
+		airkiss_get_result(ak_contex, &ak_result);
+		LOG_TRACE("Result:\nssid_crc:[%x]\nkey_len:[%d]\nkey:[%s]\nrandom:[0x%02x]", 
+			ak_result.reserved,
+			ak_result.pwd_length,
+			ak_result.pwd,
+			ak_result.random);
+
+		//TODO: save to wpa_suppliant and reset or scan and connect to wifi
+
+		break;
+    }
+
+#if AK_PKT_DEBUG
+	ak_dump_pkt_hdr(packet);
+#endif
+    pthread_mutex_unlock(&lock);
+
+	return ret;
+}
+
+int32_t ak_install_monitor(char *wifi_dev_name)
+{
+	char strbuf[512] = { 0 };
+
+	/* Set IF down */
+	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s down", wifi_dev_name);
+	if (ak_linux_exec_cmd(strbuf))
+		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
+
+	/* Del module */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_OLD);
+	if (ak_linux_exec_cmd(strbuf))
+		LOG_ERROR("Unable to delete wlan ko: %s\n", strbuf);
+
+	/* Init module */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s con_mode=4", WLAN_MODULE_PATH_NEW);
+	if (ak_linux_exec_cmd(strbuf))
+		LOG_ERROR("Unable to install wlan ko: %s\n", strbuf);
+
+	/* Set IF up */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s up", wifi_dev_name);
+	if (ak_linux_exec_cmd(strbuf))
+		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
+
+	return 0;
+}
+
+int32_t main(int32_t argc, char *argv[])
+{
+    int32_t result = 0;
+    int32_t read_size = 0;
+	uint8_t buf[RECV_BUFSIZE] = {0};
+	char *wifi_if = NULL;
+
+    if (argc != 2) {
+        LOG_ERROR("Usage: %s <device-name>", argv[0]);
+        return 1;
+    }
+    wifi_if = argv[1];
+
+    LOG_TRACE("Scanning accesss point...");
+	ak_wifi_scan_do_scan(wifi_if, gDetChans, &gDetChanNum);
+
+	/* Install ko with monitor support */
+	if (ak_install_monitor(wifi_if)) {
+		LOG_ERROR("cannot init monitor mode: %s", wifi_if);
+        return 1;
+	}
+
+    /* Open the interface and set mode monitor */
+	wi = wi_open(wifi_if);
+	if (!wi) {
+		LOG_ERROR("cannot init interface %s", wifi_if);
+		return 1;
+	}
+
+
+    /* airkiss setup */
+    ak_contex = (airkiss_context_t *)malloc(sizeof(airkiss_context_t));
+    result = airkiss_init(ak_contex, &ak_conf);
+    if(result != 0)
+    {
+        LOG_ERROR("Airkiss init failed!!");
+        return 1;
+    }
+    LOG_TRACE("Airkiss version: %s", airkiss_version());
+    if(pthread_mutex_init(&lock, NULL) != 0)
+    {
+        LOG_ERROR("mutex init failed");
+        return 1;
+	}
+
+	/* Setup channel switch timer */
+	gChanIsLocked = 0;
+	ak_start_timer(&ak_switch_ch_timer, 400);   
+	signal(SIGALRM, (__sighandler_t)&ak_switch_channel_timer_callback);
+	
+	for(;;)
+    {
+		read_size = wi->wi_read(wi, buf, RECV_BUFSIZE, NULL);
+		if (read_size < 0) {
+			LOG_ERROR("recv failed, ret %d", read_size);
+			break;
+		}
+        if (AIRKISS_STATUS_COMPLETE == ak_process_pkt(buf, read_size))
+            break;
+	}
+
+    free(ak_contex);
+    pthread_mutex_destroy(&lock);
+
+    return 0;
+}
