@@ -80,13 +80,13 @@ static int32_t ak_linux_exec_cmd(char *cmd)
 
 	ch_fp = popen(cmd, "w");
 	if (!ch_fp) {
-		LOG_ERROR("popen channel failed!\n");
+		LOG_ERROR("popen channel failed!");
 		ret = -1;
 		goto out;
 	}
 	ret = pclose(ch_fp);
 	if (WIFEXITED(ret))
-		LOG_TRACE("subprocess exited, exit code: %d\n", WEXITSTATUS(ret));
+		LOG_TRACE("subprocess exited, exit code: %d", WEXITSTATUS(ret));
 out:
 	return ret;
 }
@@ -126,7 +126,137 @@ static void ak_switch_channel_timer_callback(void)
     pthread_mutex_unlock(&lock);
 }
 
-static int32_t ak_process_pkt(const unsigned char *packet, int size)
+static int32_t ak_do_wifi_conn(char *wifi_dev_name, char *ssid, char *passwd)
+{
+	char strbuf[512] = { 0 };
+
+	/* Use setup_wifi_wpa.sh to init wifi connection */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "./setup_wifi_wpa.sh %s %s %s",
+			wifi_dev_name, ssid, passwd);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
+		return -1;
+	} else
+		return 0;
+}
+
+static int32_t ak_uninstall_monitor(char *wifi_dev_name)
+{
+	char strbuf[512] = { 0 };
+	int32_t ret = 0;
+
+	/* Set IF down */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s down", wifi_dev_name);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
+		ret = -1;
+	}
+
+	/* Del module */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_NEW);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Unable to delete wlan ko: %s\n", strbuf);
+		ret = -1;
+	}
+
+	/* Init module */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s", WLAN_MODULE_PATH_NEW);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Unable to install wlan ko: %s\n", strbuf);
+		ret = -1;
+	}
+
+	/* Set IF up */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s up", wifi_dev_name);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
+		ret = -1;
+	}
+
+	return ret;
+}
+
+static int32_t ak_install_monitor(char *wifi_dev_name)
+{
+	char strbuf[512] = { 0 };
+	int32_t ret = 0;
+
+	/* Set IF down */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s down", wifi_dev_name);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
+		ret = -1;
+	}
+
+	/* Del module */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_OLD);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Unable to delete wlan ko: %s\n", strbuf);
+		ret = -1;
+	}
+
+	/* Init module */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s con_mode=4", WLAN_MODULE_PATH_NEW);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Unable to install wlan ko: %s\n", strbuf);
+		ret = -1;
+	}
+
+	/* Set IF up */
+	memset(strbuf, 0, sizeof(strbuf));
+	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s up", wifi_dev_name);
+	if (ak_linux_exec_cmd(strbuf)) {
+		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
+		ret = -1;
+	}
+
+	return ret;
+}
+
+/* Need to do UDP broadcast to inform the success to Weixin */
+int32_t ak_udp_broadcast(uint8_t random, int32_t port)
+{
+    int32_t fd = 0;
+    int32_t enabled = 1;
+    int32_t err = 0, i = 0;
+    struct sockaddr_in addr;
+    useconds_t usecs = 1000 * 20;
+    
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_BROADCAST;
+    addr.sin_port = htons(port);
+    
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        LOG_TRACE("Error to create socket, reason: %s\n", strerror(errno));
+        return 1;
+    } 
+    
+    err = setsockopt(fd, SOL_SOCKET, SO_BROADCAST, (char *)&enabled, sizeof(enabled));
+    if (err == -1) {
+        close(fd);
+        return -1;
+    }
+    
+    LOG_TRACE("Sending random to broadcast..");
+	for (i = 0; i < 50; i++) {
+		sendto(fd, (uint8_t *)&random, 1, 0, (struct sockaddr *)&addr, sizeof(struct sockaddr));
+		usleep(usecs);
+	}
+
+    close(fd);
+    return 0;
+}
+
+static int32_t ak_process_pkt(char *wifi_dev_name, const unsigned char *packet, int size)
 {
 	int ret;
 
@@ -144,14 +274,24 @@ static int32_t ak_process_pkt(const unsigned char *packet, int size)
 		gChanIsLocked = 1;
 		LOG_TRACE("Airkiss completed.");
 		airkiss_get_result(ak_contex, &ak_result);
-		LOG_TRACE("Result:\nssid_crc:[%x]\nkey_len:[%d]\nkey:[%s]\nrandom:[0x%02x]", 
-			ak_result.reserved,
-			ak_result.pwd_length,
+		LOG_TRACE("Result:\nssid:[%s]\nssid_len:[%d]\nkey:[%s]\nkey_len:[%d]\nrandom:[0x%02x]", 
+			ak_result.ssid,
+			ak_result.ssid_length,
 			ak_result.pwd,
+			ak_result.pwd_length,
 			ak_result.random);
 
-		//TODO: save to wpa_suppliant and reset or scan and connect to wifi
+		//Save to wpa_suppliant and reset or scan and connect to wifi
+		ak_uninstall_monitor(wifi_dev_name);
 
+		// WIFI connection
+		if (ak_do_wifi_conn(wifi_dev_name, ak_result.ssid, ak_result.pwd))
+			ak_udp_broadcast(ak_result.random, 10000);
+		else
+			LOG_TRACE("Setup WIFI connection failed!");
+		break;
+	default:
+		LOG_TRACE("Invalid return from airkiss library: %d!", ret);
 		break;
     }
 
@@ -161,36 +301,6 @@ static int32_t ak_process_pkt(const unsigned char *packet, int size)
     pthread_mutex_unlock(&lock);
 
 	return ret;
-}
-
-int32_t ak_install_monitor(char *wifi_dev_name)
-{
-	char strbuf[512] = { 0 };
-
-	/* Set IF down */
-	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s down", wifi_dev_name);
-	if (ak_linux_exec_cmd(strbuf))
-		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
-
-	/* Del module */
-	memset(strbuf, 0, sizeof(strbuf));
-	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_OLD);
-	if (ak_linux_exec_cmd(strbuf))
-		LOG_ERROR("Unable to delete wlan ko: %s\n", strbuf);
-
-	/* Init module */
-	memset(strbuf, 0, sizeof(strbuf));
-	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s con_mode=4", WLAN_MODULE_PATH_NEW);
-	if (ak_linux_exec_cmd(strbuf))
-		LOG_ERROR("Unable to install wlan ko: %s\n", strbuf);
-
-	/* Set IF up */
-	memset(strbuf, 0, sizeof(strbuf));
-	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s up", wifi_dev_name);
-	if (ak_linux_exec_cmd(strbuf))
-		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
-
-	return 0;
 }
 
 int32_t main(int32_t argc, char *argv[])
@@ -242,7 +352,7 @@ int32_t main(int32_t argc, char *argv[])
 	gChanIsLocked = 0;
 	ak_start_timer(&ak_switch_ch_timer, 400);   
 	signal(SIGALRM, (__sighandler_t)&ak_switch_channel_timer_callback);
-	
+
 	for(;;)
     {
 		read_size = wi->wi_read(wi, buf, RECV_BUFSIZE, NULL);
@@ -250,7 +360,7 @@ int32_t main(int32_t argc, char *argv[])
 			LOG_ERROR("recv failed, ret %d", read_size);
 			break;
 		}
-        if (AIRKISS_STATUS_COMPLETE == ak_process_pkt(buf, read_size))
+        if (AIRKISS_STATUS_COMPLETE == ak_process_pkt(wifi_if, buf, read_size))
             break;
 	}
 
