@@ -6,8 +6,8 @@
 #include <stdlib.h>
 #include <signal.h>
 
-#include "capture/common.h"
-#include "capture/osdep.h"
+#include "aircrack-osdep/common.h"
+#include "aircrack-osdep/osdep.h"
 #include "common.h"
 #include "wifi_scan.h"
 #include "libcrc/checksum.h"
