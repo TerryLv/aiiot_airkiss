@@ -26,4 +26,5 @@ if [ -s "/var/run/wpa_supplicant/${WLAN_DEV_NAME}" ]; then
 fi
 
 cp -f $WPA_BAK_FILE $WPA_FILE
+echo "WPA reset successfully!"
 

@@ -17,10 +17,11 @@
 #define MAX_CHANNELS 14
 #define AK_PKT_DEBUG 0
 
-#define WLAN_MODULE_PATH_OLD "/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/wlan.ko"
-#define WLAN_MODULE_NAME_NEW "qca9337.ko"
-#define WLAN_MODULE_PATH_NEW "/home/root/qca9377.ko"
-#define WLAN_MODULE_PARAM " con_mode=4"
+#define WLAN_MODULE_PATH_OLD	"/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/wlan.ko"
+#define WLAN_MODULE_NAME_NEW	"qca9337.ko"
+#define WLAN_MODULE_PATH_NEW	"/home/root/qca9377.ko"
+#define WLAN_MODULE_PARAM		" con_mode=4"
+#define WLAN_DEFAULT_DEVNAME	"wlan0"
 
 static airkiss_context_t *ak_contex = NULL;
 static const airkiss_config_t ak_conf = { 
@@ -41,6 +42,7 @@ static int32_t gDetChanNum = 0;
 static int32_t gChanIsLocked = 0;
 pthread_mutex_t lock;
 
+static int32_t gVerboseEn = 1;
 #if AK_PKT_DEBUG
 static void ak_dump_pkt_hdr(const uint8_t *packet)
 {
@@ -85,7 +87,7 @@ static int32_t ak_linux_exec_cmd(char *cmd)
 		goto out;
 	}
 	ret = pclose(ch_fp);
-	if (WIFEXITED(ret))
+	if (WIFEXITED(ret) && gVerboseEn)
 		LOG_TRACE("subprocess exited, exit code: %d", WEXITSTATUS(ret));
 out:
 	return ret;
@@ -99,7 +101,7 @@ static int32_t ak_set_channel(int channel)
 	printf("exec cmd: %s\n", cmd);
 
 	if(ak_linux_exec_cmd(cmd))
-		printf("cannot set channel to %d\n", channel);
+		LOG_ERROR("cannot set channel to %d\n", channel);
 	return 0;
 }
 
@@ -114,7 +116,8 @@ static void ak_switch_channel_timer_callback(void)
 	}
 	if (gChanIndex > gDetChanNum - 1) {
 		gChanIndex = 0;
-        LOG_TRACE("scaned all channels");
+		if (gVerboseEn)
+        	LOG_TRACE("scaned all channels");
     }
 
 	ret = ak_set_channel(gDetChans[gChanIndex]);
@@ -236,7 +239,7 @@ int32_t ak_udp_broadcast(uint8_t random, int32_t port)
     
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) {
-        LOG_TRACE("Error to create socket, reason: %s\n", strerror(errno));
+        LOG_TRACE("Error to create socket, reason: %s", strerror(errno));
         return 1;
     } 
     
@@ -246,7 +249,8 @@ int32_t ak_udp_broadcast(uint8_t random, int32_t port)
         return -1;
     }
     
-    LOG_TRACE("Sending random to broadcast..");
+	if (gVerboseEn)
+    	LOG_TRACE("Sending random to broadcast..");
 	for (i = 0; i < 50; i++) {
 		sendto(fd, (uint8_t *)&random, 1, 0, (struct sockaddr *)&addr, sizeof(struct sockaddr));
 		usleep(usecs);
@@ -267,12 +271,14 @@ static int32_t ak_process_pkt(char *wifi_dev_name, const unsigned char *packet, 
 		break;
 	case AIRKISS_STATUS_CHANNEL_LOCKED:
         ak_start_timer(&ak_switch_ch_timer, 0);
-        LOG_TRACE("lock channel in %d", gDetChans[gChanIndex]);
+		if (gVerboseEn)
+        	LOG_TRACE("lock channel in %d", gDetChans[gChanIndex]);
 		gChanIsLocked = 1;
 		break;
 	case AIRKISS_STATUS_COMPLETE:
 		gChanIsLocked = 1;
-		LOG_TRACE("Airkiss completed.");
+		if (gVerboseEn)
+			LOG_TRACE("Airkiss completed.");
 		airkiss_get_result(ak_contex, &ak_result);
 		LOG_TRACE("Result:\nssid:[%s]\nssid_len:[%d]\nkey:[%s]\nkey_len:[%d]\nrandom:[0x%02x]", 
 			ak_result.ssid,
@@ -286,12 +292,12 @@ static int32_t ak_process_pkt(char *wifi_dev_name, const unsigned char *packet, 
 
 		// WIFI connection
 		if (ak_do_wifi_conn(wifi_dev_name, ak_result.ssid, ak_result.pwd))
-			ak_udp_broadcast(ak_result.random, 10000);
+			LOG_ERROR("Setup WIFI connection failed!");
 		else
-			LOG_TRACE("Setup WIFI connection failed!");
+			ak_udp_broadcast(ak_result.random, 10000);
 		break;
 	default:
-		LOG_TRACE("Invalid return from airkiss library: %d!", ret);
+		//LOG_TRACE("Invalid return from airkiss library: %d!", ret);
 		break;
     }
 
@@ -303,21 +309,51 @@ static int32_t ak_process_pkt(char *wifi_dev_name, const unsigned char *packet, 
 	return ret;
 }
 
+static void ak_usage(void)
+{
+	LOG_TRACE("aiiot_airkiss version %s", VERSION);
+	LOG_TRACE("Usage is: aiiot_airkiss [options]");
+	LOG_TRACE("Options:");
+	LOG_TRACE("-v\t\tVerbose (add more v's to be more verbose)");
+	LOG_TRACE("-d<device>\tWireless Lan Device (default: wlan0)");
+	LOG_TRACE("-c<integer>\tFixed scan channel. In a test environment, this will be more fast");
+	LOG_TRACE("-h\tPrint this guide");
+    exit (8);
+}
+
 int32_t main(int32_t argc, char *argv[])
 {
     int32_t result = 0;
     int32_t read_size = 0;
 	uint8_t buf[RECV_BUFSIZE] = {0};
-	char *wifi_if = NULL;
+	char *wifi_if = WLAN_DEFAULT_DEVNAME;
+	int32_t fixed_ch = -1;
 
-    if (argc != 2) {
-        LOG_ERROR("Usage: %s <device-name>", argv[0]);
-        return 1;
+	while ((argc > 1) && (argv[1][0] == '-')) {
+		switch (argv[1][1]) {
+		case 'q':
+			gVerboseEn = 0;
+			break;
+		case 'd':
+			wifi_if = &argv[1][2];
+			break;
+        case 'c':
+            fixed_ch = atoi(&argv[1][2]);
+            break;
+		case 'h':
+			ak_usage();
+        default:
+            LOG_TRACE("Unknown option %s", argv[1]);
+            ak_usage();
+        }
+        ++argv;
+        --argc;
     }
-    wifi_if = argv[1];
 
-    LOG_TRACE("Scanning accesss point...");
-	ak_wifi_scan_do_scan(wifi_if, gDetChans, &gDetChanNum);
+	if (fixed_ch <= 0) {
+    	LOG_TRACE("Scanning accesss point...");
+		ak_wifi_scan_do_scan(wifi_if, gDetChans, &gDetChanNum);
+	}
 
 	/* Install ko with monitor support */
 	if (ak_install_monitor(wifi_if)) {
@@ -350,8 +386,15 @@ int32_t main(int32_t argc, char *argv[])
 
 	/* Setup channel switch timer */
 	gChanIsLocked = 0;
-	ak_start_timer(&ak_switch_ch_timer, 400);   
-	signal(SIGALRM, (__sighandler_t)&ak_switch_channel_timer_callback);
+	if (fixed_ch > 0) {
+		result = ak_set_channel(fixed_ch);
+		if (result)
+			LOG_TRACE("cannot set channel to %d", fixed_ch);
+		airkiss_change_channel(ak_contex);
+	} else {
+		ak_start_timer(&ak_switch_ch_timer, 400);   
+		signal(SIGALRM, (__sighandler_t)&ak_switch_channel_timer_callback);
+	}
 
 	for(;;)
     {
