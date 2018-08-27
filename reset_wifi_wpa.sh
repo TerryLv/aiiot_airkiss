@@ -25,6 +25,9 @@ if [ -s "/var/run/wpa_supplicant/${WLAN_DEV_NAME}" ]; then
 	rm /var/run/wpa_supplicant/${WLAN_DEV_NAME}
 fi
 
+echo "Stop wpa_supplicant service ..."
+killall wpa_supplicant
+
 cp -f $WPA_BAK_FILE $WPA_FILE
 echo "WPA reset successfully!"
 

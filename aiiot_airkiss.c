@@ -16,10 +16,14 @@
 
 #define MAX_CHANNELS 14
 #define AK_PKT_DEBUG 0
+#define AK_DEF_WIFI_LEA2
 
+#ifdef AK_DEF_WIFI_LEA2
+#define WLAN_MODULE_PATH		"/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/qca9377.ko"
+#else
 #define WLAN_MODULE_PATH_OLD	"/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/wlan.ko"
-#define WLAN_MODULE_NAME_NEW	"qca9337.ko"
-#define WLAN_MODULE_PATH_NEW	"/home/root/qca9377.ko"
+#define WLAN_MODULE_PATH_NEW    "/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/qca9377.ko"
+#endif
 #define WLAN_MODULE_PARAM		" con_mode=4"
 #define WLAN_DEFAULT_DEVNAME	"wlan0"
 
@@ -80,6 +84,7 @@ static int32_t ak_linux_exec_cmd(char *cmd)
 	FILE *ch_fp = NULL;
 	int32_t ret = 0;
 
+	LOG_TRACE("Exec: %s", cmd);
 	ch_fp = popen(cmd, "w");
 	if (!ch_fp) {
 		LOG_ERROR("popen channel failed!");
@@ -154,20 +159,28 @@ static int32_t ak_uninstall_monitor(char *wifi_dev_name)
 	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s down", wifi_dev_name);
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
-		ret = -1;
+		//ret = -1;
 	}
 
 	/* Del module */
 	memset(strbuf, 0, sizeof(strbuf));
+#ifdef AK_DEF_WIFI_LEA2
+	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH);
+#else
 	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_NEW);
+#endif
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Unable to delete wlan ko: %s\n", strbuf);
-		ret = -1;
+		//ret = -1;
 	}
 
 	/* Init module */
 	memset(strbuf, 0, sizeof(strbuf));
+#ifdef AK_DEF_WIFI_LEA2
+	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s", WLAN_MODULE_PATH);
+#else
 	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s", WLAN_MODULE_PATH_NEW);
+#endif
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Unable to install wlan ko: %s\n", strbuf);
 		ret = -1;
@@ -194,20 +207,28 @@ static int32_t ak_install_monitor(char *wifi_dev_name)
 	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s down", wifi_dev_name);
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
-		ret = -1;
+		//ret = -1;
 	}
 
 	/* Del module */
 	memset(strbuf, 0, sizeof(strbuf));
+#ifdef AK_DEF_WIFI_LEA2
+	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH);
+#else
 	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_OLD);
+#endif
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Unable to delete wlan ko: %s\n", strbuf);
-		ret = -1;
+		//ret = -1;
 	}
 
 	/* Init module */
 	memset(strbuf, 0, sizeof(strbuf));
+#ifdef AK_DEF_WIFI_LEA2
+	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s con_mode=4", WLAN_MODULE_PATH);
+#else
 	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s con_mode=4", WLAN_MODULE_PATH_NEW);
+#endif
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Unable to install wlan ko: %s\n", strbuf);
 		ret = -1;

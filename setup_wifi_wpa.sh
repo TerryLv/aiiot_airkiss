@@ -10,6 +10,9 @@ WLAN_DEV_NAME=$1
 WLAN_SSID=$2
 WLAN_PASSWD=$3
 
+echo "Stop wpa_supplicant service ..."
+killall wpa_supplicant
+
 if [ -z "${WLAN_DEV_NAME}" ]; then
 	echo "Error: please specify a device name, e.g. setup_wifi_wpa.sh wlan0 test1 12345678"
 	exit 1	
