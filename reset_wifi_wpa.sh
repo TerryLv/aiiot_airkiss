@@ -4,19 +4,12 @@
 # Author: Terry Lv
 # Description: Used to reset wifi on wpa.
 
-WPA_BAK_FILE="./wpa_supplicant.conf.bak"
 WPA_FILE="/etc/wpa_supplicant.conf"
 WLAN_DEV_NAME=$1
 
 if [ -z "${WLAN_DEV_NAME}" ]; then
 	echo "Error: please specify a device name, e.g. setup_wifi_wpa.sh wlan0"
 	exit 1	
-fi
-
-# Backup existing wpa_supplicant configuration
-if [ ! -s ${WPA_BAK_FILE} ]; then
-	echo "Error: WPA backup file not exists!"
-	exit 1
 fi
 
 ifconfig ${WLAN_DEV_NAME} down
@@ -28,6 +21,14 @@ fi
 echo "Stop wpa_supplicant service ..."
 killall wpa_supplicant
 
-cp -f $WPA_BAK_FILE $WPA_FILE
+cat << EOF > ${WPA_FILE}
+ctrl_interface=/var/run/wpa_supplicant
+ctrl_interface_group=0
+update_config=1
+
+network={
+        key_mgmt=NONE
+}
+EOF
 echo "WPA reset successfully!"
 

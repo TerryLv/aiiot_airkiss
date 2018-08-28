@@ -37,8 +37,8 @@ static const airkiss_config_t ak_conf = {
 
 airkiss_result_t ak_result;
 
-struct itimerval ak_switch_ch_timer;
-struct wif *wi = NULL;
+static struct itimerval ak_switch_ch_timer;
+static struct wif *wi = NULL;
 
 static int32_t gChanIndex = 0;
 static int32_t gDetChans[MAX_CHANNELS] = {0};
@@ -205,10 +205,8 @@ static int32_t ak_install_monitor(char *wifi_dev_name)
 	/* Set IF down */
 	memset(strbuf, 0, sizeof(strbuf));
 	snprintf(strbuf, sizeof(strbuf) - 1, "ifconfig %s down", wifi_dev_name);
-	if (ak_linux_exec_cmd(strbuf)) {
-		LOG_ERROR("Cmd execute failed: %s\n", strbuf);
-		//ret = -1;
-	}
+	if (ak_linux_exec_cmd(strbuf))
+		LOG_ERROR("Cmd execute failed: %s, can be ignored\n", strbuf);
 
 	/* Del module */
 	memset(strbuf, 0, sizeof(strbuf));
@@ -217,10 +215,8 @@ static int32_t ak_install_monitor(char *wifi_dev_name)
 #else
 	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_OLD);
 #endif
-	if (ak_linux_exec_cmd(strbuf)) {
-		LOG_ERROR("Unable to delete wlan ko: %s\n", strbuf);
-		//ret = -1;
-	}
+	if (ak_linux_exec_cmd(strbuf))
+		LOG_ERROR("Unable to delete wlan ko: %s, can be ignored\n", strbuf);
 
 	/* Init module */
 	memset(strbuf, 0, sizeof(strbuf));
