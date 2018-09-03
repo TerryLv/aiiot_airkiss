@@ -18,12 +18,7 @@
 #define AK_PKT_DEBUG 0
 #define AK_DEF_WIFI_LEA2
 
-#ifdef AK_DEF_WIFI_LEA2
-#define WLAN_MODULE_PATH		"/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/qca9377.ko"
-#else
-#define WLAN_MODULE_PATH_OLD	"/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/wlan.ko"
-#define WLAN_MODULE_PATH_NEW    "/lib/modules/4.9.88-imx_4.9.88_2.0.0_ga+g5e23f9d/extra/qca9377.ko"
-#endif
+#define WLAN_MODULE_NAME		"qca9377"
 #define WLAN_MODULE_PARAM		" con_mode=4"
 #define WLAN_DEFAULT_DEVNAME	"wlan0"
 
@@ -164,11 +159,7 @@ static int32_t ak_uninstall_monitor(char *wifi_dev_name)
 
 	/* Del module */
 	memset(strbuf, 0, sizeof(strbuf));
-#ifdef AK_DEF_WIFI_LEA2
-	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH);
-#else
-	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_NEW);
-#endif
+	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_NAME);
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Unable to delete wlan ko: %s\n", strbuf);
 		//ret = -1;
@@ -176,11 +167,7 @@ static int32_t ak_uninstall_monitor(char *wifi_dev_name)
 
 	/* Init module */
 	memset(strbuf, 0, sizeof(strbuf));
-#ifdef AK_DEF_WIFI_LEA2
-	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s", WLAN_MODULE_PATH);
-#else
-	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s", WLAN_MODULE_PATH_NEW);
-#endif
+	snprintf(strbuf, sizeof(strbuf) - 1, "modprobe %s", WLAN_MODULE_NAME);
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Unable to install wlan ko: %s\n", strbuf);
 		ret = -1;
@@ -210,21 +197,13 @@ static int32_t ak_install_monitor(char *wifi_dev_name)
 
 	/* Del module */
 	memset(strbuf, 0, sizeof(strbuf));
-#ifdef AK_DEF_WIFI_LEA2
-	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH);
-#else
-	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_PATH_OLD);
-#endif
+	snprintf(strbuf, sizeof(strbuf) - 1, "rmmod %s", WLAN_MODULE_NAME);
 	if (ak_linux_exec_cmd(strbuf))
 		LOG_ERROR("Unable to delete wlan ko: %s, can be ignored\n", strbuf);
 
 	/* Init module */
 	memset(strbuf, 0, sizeof(strbuf));
-#ifdef AK_DEF_WIFI_LEA2
-	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s con_mode=4", WLAN_MODULE_PATH);
-#else
-	snprintf(strbuf, sizeof(strbuf) - 1, "insmod %s con_mode=4", WLAN_MODULE_PATH_NEW);
-#endif
+	snprintf(strbuf, sizeof(strbuf) - 1, "modprobe %s "WLAN_MODULE_PARAM, WLAN_MODULE_NAME);
 	if (ak_linux_exec_cmd(strbuf)) {
 		LOG_ERROR("Unable to install wlan ko: %s\n", strbuf);
 		ret = -1;
@@ -332,7 +311,7 @@ static void ak_usage(void)
 	LOG_TRACE("Usage is: aiiot_airkiss [options]");
 	LOG_TRACE("Options:");
 	LOG_TRACE("-v\t\tVerbose (add more v's to be more verbose)");
-	LOG_TRACE("-d<device>\tWireless Lan Device (default: wlan0)");
+	LOG_TRACE("-d<device>\tWireless Lan Device (default: "WLAN_DEFAULT_DEVNAME")");
 	LOG_TRACE("-c<integer>\tFixed scan channel. In a test environment, this will be more fast");
 	LOG_TRACE("-h\tPrint this guide");
     exit (8);
