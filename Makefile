@@ -33,12 +33,13 @@ OBJS = $(SRCS:.c=$(BIN_POSTFIX).o)
 
 LIBIW = -liw
 LIBTIMER = -lrt
-LIBAIRKISS = -L./libak -lairkiss_log
+LIBAIRKISS-debug = -L./libak -lairkiss_log
+LIBAIRKISS-release = -L./libak -lairkiss
 LIBCRC = -L./libcrc -lcrc
-LIBS = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib $(LIBAIRKISS) $(LIBIW) $(LIBTIMER) $(LIBCRC)
+LIBS-debug = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib $(LIBAIRKISS-debug) $(LIBIW) $(LIBTIMER) $(LIBCRC)
+LIBS-release = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib $(LIBAIRKISS-release) $(LIBIW) $(LIBTIMER) $(LIBCRC)
 
-
-all:   $(APP_BINARY) 
+all: debug release
 
 clean:
 	@echo "Cleaning up directory."
@@ -48,5 +49,9 @@ install:
 	install $(APP_BINARY) $(PREFIX)
 
 # Applications:
-$(APP_BINARY): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) $(LIBS) -o $(APP_BINARY)
+debug: $(OBJS)
+	$(CC) $(CFLAGS) $(OBJS) $(LIBS-debug) -o $(APP_BINARY)
+
+release: $(OBJS)
+	$(CC) $(CFLAGS) $(OBJS) $(LIBS-release) -o $(APP_BINARY)
+
