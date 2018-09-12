@@ -1,4 +1,4 @@
-#/bin/sh
+#!/bin/sh
 # Name:   setup_wifi_wpa.sh
 # Data:   7-24-2018
 # Author: Terry Lv
@@ -6,9 +6,9 @@
 
 WPA_BAK_FILE="/etc/wpa_supplicant.conf.bak"
 WPA_FILE="/etc/wpa_supplicant.conf"
-WLAN_DEV_NAME=$1
-WLAN_SSID=$2
-WLAN_PASSWD=$3
+WLAN_DEV_NAME="$1"
+WLAN_SSID="$2"
+WLAN_PASSWD="$3"
 
 echo "Stop wpa_supplicant service ..."
 killall wpa_supplicant

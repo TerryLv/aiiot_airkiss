@@ -1,4 +1,4 @@
-#/bin/sh
+#!/bin/sh
 # Name:   reset_wifi_wpa.sh
 # Data:   8-20-2018
 # Author: Terry Lv
