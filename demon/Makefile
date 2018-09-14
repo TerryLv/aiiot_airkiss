@@ -14,10 +14,9 @@ VERSION = 0.1
 PREFIX=/usr/local/bin
 
 WARNINGS = -Wall
-
-#CFLAGS = -std=gnu99 -O2 -DLINUX -DVERSION=\"$(VERSION)\" $(WARNINGS)
-CFLAGS = -O0 -g -DLINUX -DVERSION=\"$(VERSION)\" $(WARNINGS) -I$(OECORE_TARGET_SYSROOT) -I./include
-CPPFLAGS = $(CFLAGS)
+CFAGS_OPT-release = -O0 -g
+CFAGS_OPT-debug = -O2
+CFLAGS = -DLINUX -DVERSION=\"$(VERSION)\" $(WARNINGS) -I$(OECORE_TARGET_SYSROOT)
 
 SRCS = aiiot_airkiss_demon.c
 OBJS = $(SRCS:.c=$(BIN_POSTFIX).o)
@@ -25,7 +24,7 @@ OBJS = $(SRCS:.c=$(BIN_POSTFIX).o)
 LIBS = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib
 
 
-all:   $(APP_BINARY) 
+all:   debug release 
 
 clean:
 	@echo "Cleaning up directory."
@@ -35,5 +34,9 @@ install:
 	install $(APP_BINARY) $(PREFIX)
 
 # Applications:
-$(APP_BINARY): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) $(LIBS) -o $(APP_BINARY)
+debug: $(OBJS)
+	$(CC) $(CFLAGS) $(CFAGS_OPT-debug) $(OBJS) $(LIBS) -o $(APP_BINARY)
+
+release: $(OBJS)
+	$(CC) $(CFLAGS) $(CFAGS_OPT-release) $(OBJS) $(LIBS-release) -o $(APP_BINARY)
+
