@@ -7,36 +7,47 @@
 # target    Linux on Apalis/Colibri modules
 # caveats   -
 
-#CC=gcc
-#CPP=g++
-APP_BINARY=aiiot_airkiss_demon
+CC ?= gcc
+CPP ?= g++
+RM = rm -f
+STRIP ?= strip
+
+PROG = aiiot_airkiss_demon
 VERSION = 0.1
 PREFIX=/usr/local/bin
 
 WARNINGS = -Wall
-CFAGS_OPT-release = -O0 -g
-CFAGS_OPT-debug = -O2
-CFLAGS = -DLINUX -DVERSION=\"$(VERSION)\" $(WARNINGS) -I$(OECORE_TARGET_SYSROOT)
+HOST_ROOTFS ?= $(OECORE_TARGET_SYSROOT)
+ifeq ($(DEBUG), 1)
+	CFLAGS = -DLINUX -DVERSION=\"$(VERSION)\" -O0 -g $(WARNINGS) -I$(HOST_ROOTFS) -I./include
+else
+	CFLAGS = -DLINUX -DVERSION=\"$(VERSION)\" -O2 $(WARNINGS) -I$(HOST_ROOTFS) -I./include
+endif
 
+# Sets the output filename and object files
 SRCS = aiiot_airkiss_demon.c
 OBJS = $(SRCS:.c=$(BIN_POSTFIX).o)
+DEPS= $(OBJS:.o=.o.d)
 
 LIBS = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib
 
+# pull in dependency info for *existing* .o files
+-include $(DEPS)
 
-all:   debug release 
+all: $(PROG)
+
+$(PROG): $(OBJS) Makefile
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIBS) $(LDFLAGS)
+	#$(STRIP) $@
+
+%$(BIN_POSTFIX).o: %.c
+	$(CC) -c $(CFLAGS) -o $@ $<
+	$(CC) -MM $(CFLAGS) $< > $@.d
 
 clean:
 	@echo "Cleaning up directory."
-	rm -f *.a $(OBJS) $(APP_BINARY) core *~ log errlog
+	$(RM) $(OBJS) $(PROG) $(DEPS)
 
 install:
-	install $(APP_BINARY) $(PREFIX)
-
-# Applications:
-debug: $(OBJS)
-	$(CC) $(CFLAGS) $(CFAGS_OPT-debug) $(OBJS) $(LIBS) -o $(APP_BINARY)
-
-release: $(OBJS)
-	$(CC) $(CFLAGS) $(CFAGS_OPT-release) $(OBJS) $(LIBS-release) -o $(APP_BINARY)
+	install $(PROG) $(PREFIX)
 
