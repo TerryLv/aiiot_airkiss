@@ -9,14 +9,19 @@
 
 CC ?= gcc
 CPP ?= g++
-APP_BINARY = aiiot_airkiss
+RM = rm -f
+STRIP ?= strip
+
+PROG = aiiot_airkiss
 VERSION = 0.1
 PREFIX = /usr/local/bin
 
 WARNINGS = -Wall
-CFAGS_OPT-release = -O0 -g
-CFAGS_OPT-debug = -O2
-CFLAGS = -DLINUX -DVERSION=\"$(VERSION)\" $(WARNINGS) -I$(OECORE_TARGET_SYSROOT) -I./include
+ifeq ($(DEBUG), 1)
+	CFLAGS = -DLINUX -DVERSION=\"$(VERSION)\" -O0 -g $(WARNINGS) -I$(OECORE_TARGET_SYSROOT) -I./include
+else
+	CFLAGS = -DLINUX -DVERSION=\"$(VERSION)\" -O2 $(WARNINGS) -I$(OECORE_TARGET_SYSROOT) -I./include
+endif
 
 SRCS = aiiot_airkiss.c
 SRCS += \
@@ -27,29 +32,38 @@ SRCS += \
 		aircrack-osdep/network.c \
 		aircrack-osdep/radiotap/radiotap.c
 SRCS += wifi_scan.c
-OBJS = $(SRCS:.c=$(BIN_POSTFIX).o)
+
+# Sets the output filename and object files
+OBJS= $(SRCS:.c=$(BIN_POSTFIX).o)
+DEPS= $(OBJS:.o=.o.d)
 
 LIBIW = -liw
 LIBTIMER = -lrt
-LIBAIRKISS-debug = -L./libak -lairkiss_log
-LIBAIRKISS-release = -L./libak -lairkiss
+ifeq ($(DEBUG), 1)
+LIBAIRKISS = -L./libak -lairkiss_log
+else
+LIBAIRKISS = -L./libak -lairkiss
+endif
 LIBCRC = -L./libcrc -lcrc
-LIBS-debug = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib $(LIBAIRKISS-debug) $(LIBIW) $(LIBTIMER) $(LIBCRC)
-LIBS-release = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib $(LIBAIRKISS-release) $(LIBIW) $(LIBTIMER) $(LIBCRC)
+LIBS = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib $(LIBAIRKISS) $(LIBIW) $(LIBTIMER) $(LIBCRC)
 
-all: debug release
+# pull in dependency info for *existing* .o files
+-include $(DEPS)
+
+all: $(PROG)
+
+$(PROG): $(OBJS) Makefile
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIBS) $(LDFLAGS)
+	#$(STRIP) $@
+
+%$(BIN_POSTFIX).o: %.c
+	$(CC) -c $(CFLAGS) -o $@ $<
+	$(CC) -MM $(CFLAGS) $< > $@.d
 
 clean:
 	@echo "Cleaning up directory."
-	rm -f *.a $(OBJS) $(APP_BINARY) core *~ log errlog
+	$(RM) $(OBJS) $(PROG) $(DEPS)
 
 install:
-	install $(APP_BINARY) $(PREFIX)
-
-# Applications:
-debug: $(OBJS)
-	$(CC) $(CFLAGS) $(CFAGS_OPT-debug) $(OBJS) $(LIBS-debug) -o $(APP_BINARY)
-
-release: $(OBJS)
-	$(CC) $(CFLAGS) $(CFAGS_OPT-release) $(OBJS) $(LIBS-release) -o $(APP_BINARY)
+	install $(PROG) $(PREFIX)
 
