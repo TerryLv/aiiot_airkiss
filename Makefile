@@ -12,9 +12,9 @@ CPP ?= g++
 RM = rm -f
 STRIP ?= strip
 
-PROG = aiiot_airkiss_demon
+PROG = aiiot_airkiss
 VERSION = 0.1
-PREFIX=/usr/local/bin
+PREFIX = /usr/local/bin
 
 WARNINGS = -Wall
 HOST_ROOTFS ?= $(OECORE_TARGET_SYSROOT)
@@ -24,12 +24,29 @@ else
 	CFLAGS = -DLINUX -DVERSION=\"$(VERSION)\" -O2 $(WARNINGS) -I$(HOST_ROOTFS) -I./include
 endif
 
+SRCS = aiiot_airkiss.c
+SRCS += \
+		aircrack-osdep/common.c \
+		aircrack-osdep/osdep.c \
+		aircrack-osdep/linux.c \
+		aircrack-osdep/file.c \
+		aircrack-osdep/network.c \
+		aircrack-osdep/radiotap/radiotap.c
+SRCS += wifi_scan.c
+
 # Sets the output filename and object files
-SRCS = aiiot_airkiss_demon.c
-OBJS = $(SRCS:.c=$(BIN_POSTFIX).o)
+OBJS= $(SRCS:.c=$(BIN_POSTFIX).o)
 DEPS= $(OBJS:.o=.o.d)
 
-LIBS = -lpthread -lm -L$(HOST_ROOTFS)/usr/lib
+LIBIW = -liw
+LIBTIMER = -lrt
+ifeq ($(DEBUG), 1)
+LIBAIRKISS = -L./libak -lairkiss_log
+else
+LIBAIRKISS = -L./libak -lairkiss
+endif
+LIBCRC = -L./libcrc -lcrc
+LIBS = -lpthread -lm -L$(HOST_ROOTFS)/usr/lib $(LIBAIRKISS) $(LIBIW) $(LIBTIMER) $(LIBCRC)
 
 # pull in dependency info for *existing* .o files
 -include $(DEPS)

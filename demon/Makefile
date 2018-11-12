@@ -29,7 +29,7 @@ SRCS = aiiot_airkiss_demon.c
 OBJS = $(SRCS:.c=$(BIN_POSTFIX).o)
 DEPS= $(OBJS:.o=.o.d)
 
-LIBS = -lpthread -lm -L$(OECORE_TARGET_SYSROOT)/usr/lib
+LIBS = -lpthread -lm -L$(HOST_ROOTFS)/usr/lib
 
 # pull in dependency info for *existing* .o files
 -include $(DEPS)
