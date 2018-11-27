@@ -27,7 +27,7 @@ endif
 # Sets the output filename and object files
 SRCS = aiiot_airkiss_demon.c
 OBJS = $(SRCS:.c=$(BIN_POSTFIX).o)
-DEPS= $(OBJS:.o=.o.d)
+DEPS= $(OBJS:.o=.d)
 
 LIBS = -lpthread -lm -L$(HOST_ROOTFS)/usr/lib
 

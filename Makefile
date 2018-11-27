@@ -36,7 +36,7 @@ SRCS += wifi_scan.c
 
 # Sets the output filename and object files
 OBJS= $(SRCS:.c=$(BIN_POSTFIX).o)
-DEPS= $(OBJS:.o=.o.d)
+DEPS= $(OBJS:.o=.d)
 
 LIBIW = -liw
 LIBTIMER = -lrt
